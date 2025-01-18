@@ -1,0 +1,46 @@
+//Monthly Mean Humidity of Maharasthra
+// Define the study area
+var study_area = ee.FeatureCollection("projects/ee-avni22911119/assets/Maharasthra_District");
+
+// Simplify the geometry to reduce payload size
+var simplifiedArea = study_area.geometry().simplify(1000); // Simplify with 1 km tolerance
+Map.addLayer(simplifiedArea, {}, 'Simplified Maharashtra District');
+
+// Define the year
+var year = 2020;
+
+// Function to calculate monthly mean humidity
+var calculateMonthlyMeanHumidity = function(month) {
+  var startDate = ee.Date.fromYMD(year, month, 1); // Start of the month
+  var endDate = startDate.advance(1, 'month');    // End of the month
+
+  // Filter the humidity data for the given month and area
+  var humidityData = ee.ImageCollection("NOAA/GFS0P25")
+    .filter(ee.Filter.date(startDate, endDate))
+    .select(['relative_humidity_2m_above_ground']);
+
+  // Calculate the monthly mean and clip to the study area
+  var monthlyMeanHumidity = humidityData.mean().clip(simplifiedArea);
+
+  return monthlyMeanHumidity.set({
+    'year': year,
+    'month': month,
+    'system:time_start': startDate.millis()
+  }).rename('mean_humidity');
+};
+
+// Loop through months to calculate and export monthly mean humidity
+for (var month = 1; month <= 12; month++) {
+  var monthlyHumidity = calculateMonthlyMeanHumidity(month);
+
+  // Export monthly mean humidity raster
+  Export.image.toDrive({
+    image: monthlyHumidity,
+    description: 'Mean_Humidity_' + year + '_' + month,
+    folder: 'Humidity_Monthly',
+    scale: 5000, // Adjust scale to reduce payload size
+    region: simplifiedArea,
+    crs: 'EPSG:4326',
+    maxPixels: 1e13
+  });
+}
