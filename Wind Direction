@@ -1,0 +1,54 @@
+// Monthly Mean Wind Direction of Maharasthra from 2020 to 2022 
+// Define the study area
+var study_area = ee.FeatureCollection("projects/ee-avni22911119/assets/Maharasthra_District");
+
+// Simplify the geometry to reduce payload size
+var simplifiedArea = study_area.geometry().simplify(1000); // Simplify with 1 km tolerance
+Map.addLayer(simplifiedArea, {}, 'Simplified Maharashtra District');
+
+// Define the year
+var year = 2022;
+
+// Function to calculate monthly mean wind direction
+var calculateMonthlyMeanWindDirection = function(month) {
+  var startDate = ee.Date.fromYMD(year, month, 1); // Start of the month
+  var endDate = startDate.advance(1, 'month');    // End of the month
+
+  // Filter the wind data for the given month and area
+  var windData = ee.ImageCollection("ECMWF/ERA5_LAND/MONTHLY_AGGR")
+    .filter(ee.Filter.date(startDate, endDate))
+    .select(['u_component_of_wind_10m', 'v_component_of_wind_10m']);
+
+  // Calculate the monthly mean and clip to the study area
+  var monthlyMeanWind = windData.mean().clip(simplifiedArea);
+
+  // Compute wind direction
+  var windDirection = monthlyMeanWind.expression(
+    '(atan2(v, u) * (180 / 3.14159265359) + 360) % 360', {
+      'u': monthlyMeanWind.select('u_component_of_wind_10m'),
+      'v': monthlyMeanWind.select('v_component_of_wind_10m')
+    }
+  ).rename('wind_direction');
+
+  return windDirection.set({
+    'year': year,
+    'month': month,
+    'system:time_start': startDate.millis()
+  });
+};
+
+// Loop through months to calculate and export wind direction
+for (var month = 1; month <= 12; month++) {
+  var windDirection = calculateMonthlyMeanWindDirection(month);
+
+  // Export wind direction raster
+  Export.image.toDrive({
+    image: windDirection,
+    description: 'Wind_Direction_' + year + '_' + month,
+    folder: 'Wind_Direction_Monthly',
+    scale: 5000, // Adjust scale to reduce payload size
+    region: simplifiedArea,
+    crs: 'EPSG:4326',
+    maxPixels: 1e13
+  });
+}
