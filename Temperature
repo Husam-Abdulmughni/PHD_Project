@@ -1,0 +1,55 @@
+
+//Create Monthly Mean Temperature from 2020 to 2022
+// Define the study area
+var study_area = ee.FeatureCollection("projects/ee-avni22911119/assets/Maharasthra_District");
+
+// Simplify the geometry to reduce payload size
+var simplifiedArea = study_area.geometry().simplify(1000); // Simplify geometry with 1 km tolerance
+Map.addLayer(simplifiedArea, {}, 'Simplified Maharashtra District');
+
+// Define the date range
+var startYear = 2020;
+var endYear = 2020;
+
+// Function to calculate monthly mean temperature
+var calculateMonthlyMeanTemperature = function(year, month) {
+  var startDate = ee.Date.fromYMD(year, month, 1); // Start of the month
+  var endDate = startDate.advance(1, 'month');    // End of the month
+
+  // Filter the MODIS LST data for the given month and area
+  var monthlyData = ee.ImageCollection("MODIS/061/MOD11A1")
+    .select('LST_Day_1km') // Select day-time temperature band
+    .filterBounds(simplifiedArea)
+    .filterDate(startDate, endDate);
+
+  // Calculate the monthly mean temperature
+  var monthlyMean = monthlyData.mean().clip(simplifiedArea);
+
+  // Convert temperature from Kelvin to Celsius
+  var monthlyMeanCelsius = monthlyMean.multiply(0.02).subtract(273.15);
+
+  // Add metadata to the resulting image
+  return monthlyMeanCelsius.set({
+    'year': year,
+    'month': month,
+    'system:time_start': startDate.millis()
+  });
+};
+
+// Loop through years and months to calculate and export monthly mean temperature
+for (var year = startYear; year <= endYear; year++) {
+  for (var month = 1; month <= 12; month++) {
+    var meanTemperature = calculateMonthlyMeanTemperature(year, month); // Compute monthly mean temperature
+
+    // Export the image to Google Drive
+    Export.image.toDrive({
+      image: meanTemperature,
+      description: 'MonthlyMeanTemperature_' + year + '_' + month, // Unique file name
+      folder: 'MODIS_Monthly_Means',                               // Folder in Google Drive
+      scale: 1000,                                                 // Scale in meters
+      region: simplifiedArea,                                      // Simplified study area
+      fileFormat: 'GeoTIFF',                                       // Export format
+      maxPixels: 1e13                                              // Maximum pixels to process
+    });
+  }
+}
