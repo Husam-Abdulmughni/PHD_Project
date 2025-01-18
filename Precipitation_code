@@ -1,3 +1,4 @@
+//Create Monthly Mean Precipitation from 2020 to 2022
 // Define the study area 
 var study_area = ee.FeatureCollection("projects/ee-avni22911119/assets/Maharasthra_District");
 
