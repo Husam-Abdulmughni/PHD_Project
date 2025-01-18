@@ -1,0 +1,100 @@
+//Missing data corrected Temperature of months July (2020, 2022), August(2020, 2021, 2022), September (2021)  
+// Define the study area 
+var study_area = ee.FeatureCollection("projects/ee-avni22911119/assets/Maharasthra_District");
+
+// Simplify the geometry to reduce payload size
+var simplifiedArea = study_area.geometry().simplify(1000); // Simplify geometry with 1 km tolerance
+Map.addLayer(simplifiedArea, {}, 'Simplified Maharashtra District');
+
+// Function to fill gaps in an image
+var fillGaps = function(image, fallbackValue) {
+  // Apply focal mean to fill small gaps
+  var filled = image.focal_mean(3, 'square', 'meters', 1000);
+
+  // Mask original no-data areas in the filled image
+  var noDataMask = image.mask().not();
+
+  // Convert the fallback value into an image
+  var fallbackImage = ee.Image.constant(fallbackValue).clip(simplifiedArea);
+
+  // Replace gaps with fallback image
+  var filledWithFallback = filled.updateMask(noDataMask).unmask(fallbackImage);
+
+  // Combine original and filled values
+  return image.unmask(filledWithFallback);
+};
+
+// Function to calculate monthly mean temperature
+var calculateMonthlyMeanTemperature = function(year, month) {
+  var startDate = ee.Date.fromYMD(year, month, 1); // Start of the month
+  var endDate = startDate.advance(1, 'month');    // End of the month
+
+  // Filter the MODIS LST data for the given month and area
+  var monthlyData = ee.ImageCollection("MODIS/061/MOD11A1")
+    .select('LST_Day_1km') // Select day-time temperature band
+    .filterBounds(simplifiedArea)
+    .filterDate(startDate, endDate);
+
+  // Calculate the monthly mean temperature
+  var monthlyMean = monthlyData.mean().clip(simplifiedArea);
+
+  // Convert temperature from Kelvin to Celsius
+  var monthlyMeanCelsius = monthlyMean.multiply(0.02).subtract(273.15);
+
+  // Compute a fallback value for gaps using regional mean
+  var fallbackValue = monthlyMeanCelsius.reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: simplifiedArea,
+    scale: 1000,
+    maxPixels: 1e13
+  }).get('LST_Day_1km');
+
+  // Fill gaps with neighborhood mean and fallback image
+  var filledTemperature = fillGaps(monthlyMeanCelsius, fallbackValue);
+
+  // Add metadata to the resulting image
+  return filledTemperature.set({
+    'year': year,
+    'month': month,
+    'system:time_start': startDate.millis()
+  });
+};
+
+// Define the specific months and years to process
+var selectedPeriods = [
+  { year: 2020, month: 7 }, // July 2020
+  { year: 2020, month: 8 }, // August 2020
+  { year: 2021, month: 8 }, // August 2021
+  { year: 2021, month: 9 }, // September 2021
+  { year: 2022, month: 7 }, // July 2022
+  { year: 2022, month: 8 }  // August 2022
+];
+
+// Visualization parameters
+var visParams = {
+  min: 20, // Minimum temperature in Celsius
+  max: 50, // Maximum temperature in Celsius
+  palette: ['blue', 'cyan', 'green', 'yellow', 'red'] // Color palette
+};
+
+// Loop through selected periods to calculate, visualize, and export monthly mean temperature
+selectedPeriods.forEach(function(period) {
+  var year = period.year;
+  var month = period.month;
+
+  var meanTemperature = calculateMonthlyMeanTemperature(year, month); // Compute monthly mean temperature
+
+  // Add the layer to the map
+  Map.addLayer(meanTemperature, visParams, 'Mean Temperature ' + year + '-' + month);
+
+  // Export the image to Google Drive
+  Export.image.toDrive({
+    image: meanTemperature,
+    description: 'MonthlyMeanTemperature_' + year + '_' + month, // Unique file name
+    folder: 'New_MODIS_Monthly_Means',                               // Folder in Google Drive
+    scale: 1000,                                                 // Scale in meters
+    region: simplifiedArea,                                      // Simplified study area
+    fileFormat: 'GeoTIFF',                                       // Export format
+    maxPixels: 1e13                                              // Maximum pixels to process
+  });
+});
