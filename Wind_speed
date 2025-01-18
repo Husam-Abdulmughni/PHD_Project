@@ -1,0 +1,54 @@
+// Monthly Mean Windspeed of Maharasthra from 2020 to 2022 
+// Define the study area
+var study_area = ee.FeatureCollection("projects/ee-avni22911119/assets/Maharasthra_District");
+
+// Simplify the geometry to reduce payload size
+var simplifiedArea = study_area.geometry().simplify(1000); // Simplify with 1 km tolerance
+Map.addLayer(simplifiedArea, {}, 'Simplified Maharashtra District');
+
+// Define the year
+var year = 2020;
+
+// Function to calculate monthly mean wind speed
+var calculateMonthlyMeanWind = function(month) {
+  var startDate = ee.Date.fromYMD(year, month, 1); // Start of the month
+  var endDate = startDate.advance(1, 'month');    // End of the month
+
+  // Filter the wind data for the given month and area
+  var windData = ee.ImageCollection("ECMWF/ERA5_LAND/MONTHLY_AGGR")
+    .filter(ee.Filter.date(startDate, endDate))
+    .select(['u_component_of_wind_10m', 'v_component_of_wind_10m']);
+
+  // Calculate the monthly mean and clip to the study area
+  var monthlyMeanWind = windData.mean().clip(simplifiedArea);
+
+  // Compute wind speed
+  var windSpeed = monthlyMeanWind.expression(
+    'sqrt(u**2 + v**2)', {
+      'u': monthlyMeanWind.select('u_component_of_wind_10m'),
+      'v': monthlyMeanWind.select('v_component_of_wind_10m')
+    }
+  ).rename('wind_speed');
+
+  return windSpeed.set({
+    'year': year,
+    'month': month,
+    'system:time_start': startDate.millis()
+  });
+};
+
+// Loop through months to calculate and export wind speed
+for (var month = 1; month <= 12; month++) {
+  var windSpeed = calculateMonthlyMeanWind(month);
+
+  // Export wind speed raster
+  Export.image.toDrive({
+    image: windSpeed,
+    description: 'Wind_Speed_' + year + '_' + month,
+    folder: 'Wind_Speed_Monthly',
+    scale: 1000, // Adjust scale to reduce payload size
+    region: simplifiedArea,
+    crs: 'EPSG:4326',
+    maxPixels: 1e13
+  });
+}
