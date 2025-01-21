@@ -22,7 +22,7 @@ var calculateMonthlyMeanWindDirection = function(month) {
   // Calculate the monthly mean and clip to the study area
   var monthlyMeanWind = windData.mean().clip(simplifiedArea);
 
-  // Compute wind direction
+  // Compute wind direction in degrees
   var windDirection = monthlyMeanWind.expression(
     '(atan2(v, u) * (180 / 3.14159265359) + 360) % 360', {
       'u': monthlyMeanWind.select('u_component_of_wind_10m'),
@@ -45,8 +45,8 @@ for (var month = 1; month <= 12; month++) {
   Export.image.toDrive({
     image: windDirection,
     description: 'Wind_Direction_' + year + '_' + month,
-    folder: 'Wind_Direction_Monthly',
-    scale: 5000, // Adjust scale to reduce payload size
+    folder: 'new_Wind_Direction_Monthly',
+    scale: 1000, // Adjust scale to reduce payload size
     region: simplifiedArea,
     crs: 'EPSG:4326',
     maxPixels: 1e13
