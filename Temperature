@@ -1,55 +1,70 @@
+// Define the study area (Maharashtra districts)
+var study_area = ee.FeatureCollection("projects/ee-avni22911119/assets/Maharasthra");
 
-//Create Monthly Mean Temperature from 2020 to 2022
-// Define the study area
-var study_area = ee.FeatureCollection("projects/ee-avni22911119/assets/Maharasthra_District");
+// Print the first feature to check property names
+print(study_area.first());
 
-// Simplify the geometry to reduce payload size
-var simplifiedArea = study_area.geometry().simplify(1000); // Simplify geometry with 1 km tolerance
-Map.addLayer(simplifiedArea, {}, 'Simplified Maharashtra District');
+// Add the study area to the map for visualization
+Map.addLayer(study_area, {}, 'Maharashtra Districts');
 
 // Define the date range
 var startYear = 2020;
-var endYear = 2020;
+var endYear = 2022;
 
-// Function to calculate monthly mean temperature
-var calculateMonthlyMeanTemperature = function(year, month) {
+// Function to calculate monthly mean temperature for a given district
+var calculateMonthlyMeanTemperature = function(year, month, district) {
   var startDate = ee.Date.fromYMD(year, month, 1); // Start of the month
   var endDate = startDate.advance(1, 'month');    // End of the month
 
-  // Filter the MODIS LST data for the given month and area
+  // Filter the MODIS LST data for the given month and district
   var monthlyData = ee.ImageCollection("MODIS/061/MOD11A1")
     .select('LST_Day_1km') // Select day-time temperature band
-    .filterBounds(simplifiedArea)
+    .filterBounds(district.geometry())
     .filterDate(startDate, endDate);
 
   // Calculate the monthly mean temperature
-  var monthlyMean = monthlyData.mean().clip(simplifiedArea);
+  var monthlyMean = monthlyData.mean().clip(district.geometry());
 
   // Convert temperature from Kelvin to Celsius
   var monthlyMeanCelsius = monthlyMean.multiply(0.02).subtract(273.15);
 
-  // Add metadata to the resulting image
-  return monthlyMeanCelsius.set({
+  // Reduce the image to get the mean temperature for the district
+  var meanValue = monthlyMeanCelsius.reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: district.geometry(),
+    scale: 1000,
+    maxPixels: 1e13
+  });
+
+  // Create a feature with the mean temperature and metadata
+  return ee.Feature(null, {
+    'district': district.get('District'), // Ensure 'District' is the correct property name
     'year': year,
     'month': month,
-    'system:time_start': startDate.millis()
+    'mean_temperature': meanValue.get('LST_Day_1km')
   });
 };
 
-// Loop through years and months to calculate and export monthly mean temperature
+// Loop through years and months to calculate and export monthly mean temperature for all districts
 for (var year = startYear; year <= endYear; year++) {
   for (var month = 1; month <= 12; month++) {
-    var meanTemperature = calculateMonthlyMeanTemperature(year, month); // Compute monthly mean temperature
+    // Skip months before April 2020
+    if (year === 2020 && month < 4) continue;
 
-    // Export the image to Google Drive
-    Export.image.toDrive({
-      image: meanTemperature,
-      description: 'MonthlyMeanTemperature_' + year + '_' + month, // Unique file name
-      folder: 'MODIS_Monthly_Means',                               // Folder in Google Drive
-      scale: 1000,                                                 // Scale in meters
-      region: simplifiedArea,                                      // Simplified study area
-      fileFormat: 'GeoTIFF',                                       // Export format
-      maxPixels: 1e13                                              // Maximum pixels to process
+    // Map over each district to calculate monthly mean temperature
+    var districtMeans = study_area.map(function(district) {
+      return calculateMonthlyMeanTemperature(year, month, district);
+    });
+
+    // Export the feature collection as a CSV to Google Drive
+    Export.table.toDrive({
+      collection: districtMeans,
+      description: 'Temperature_MonthlyMean_' + year + '_' + month, // Unique file name
+      folder: 'TEMPERATURE',                                        // Folder in Google Drive
+      fileFormat: 'CSV',                                            // Export format
+      selectors: ['district', 'year', 'month', 'mean_temperature']  // Specify column order
     });
   }
 }
+
+print('Export tasks created for all districts.');
